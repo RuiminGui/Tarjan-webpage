@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tarjan's Algorithm Visualization</title>
+    <style>
+        #graph {
+            width: 60%;
+            height: 500px;
+            border: 1px solid #ccc;
+            float: left;
+        }
+        #stack, #scc {
+            width: 35%;
+            height: 240px;
+            border: 1px solid #ccc;
+            float: right;
+            padding-left: 10px;
+            overflow-y: auto;
+        }
+        .stack-item, .scc-item {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Tarjan's Algorithm Visualization</h2>
+
+<label for="nodes">Nodes (comma separated):</label>
+<input type="text" id="nodes" placeholder="e.g., A,B,C,D"><br><br>
+
+<label for="edges">Edges (format: A-B, B-C):</label>
+<input type="text" id="edges" placeholder="e.g., A-B, B-C, B-A"><br><br>
+
+<button onclick="drawGraph()">Draw Graph</button>
+<button onclick="findSCC()">Find SCC</button>
+
+<div id="graph"></div>
+<div id="stack"><h3>Stack</h3></div>
+<div id="scc"><h3>Strongly Connected Components</h3></div>
+
+<script src="https://d3js.org/d3.v6.min.js"></script>
+<script>
+function drawGraph() {
+    const nodesInput = document.getElementById("nodes").value;
+    const edgesInput = document.getElementById("edges").value;
+
+    if (!nodesInput || !edgesInput) {
+        alert("Please enter both nodes and edges.");
+        return;
+    }
+
+    const nodes = nodesInput.split(',').map(n => ({ id: n.trim() }));
+    const edges = edgesInput.split(',').map(e => {
+        const [source, target] = e.trim().split('-');
+        return { source: source.trim(), target: target.trim() };
+    });
+
+    d3.select("#graph").selectAll("*").remove();
+
+    const width = document.getElementById("graph").clientWidth;
+    const height = document.getElementById("graph").clientHeight;
+
+    const svg = d3.select("#graph").append("svg")
+        .attr("width", width)
+        .attr("height", height);
+
+    svg.append("defs").append("marker")
+        .attr("id", "arrowhead")
+        .attr("viewBox", "-0 -5 10 10")
+        .attr("refX", 13)
+        .attr("refY", 0)
+        .attr("orient", "auto")
+        .attr("markerWidth", 6)
+        .attr("markerHeight", 6)
+        .attr("xoverflow", "visible")
+        .append("svg:path")
+        .attr("d", "M 0,-5 L 10 ,0 L 0,5")
+        .attr("fill", "#999")
+        .style("stroke", "none");
+
+    const simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(edges).id(d => d.id).distance(100))
+        .force("charge", d3.forceManyBody().strength(-300))
+        .force("center", d3.forceCenter(width / 2, height / 2));
+
+    const link = svg.append("g")
+        .attr("class", "links")
+        .selectAll("path")
+        .data(edges)
+        .enter().append("path")
+        .attr("stroke-width", 2)
+        .attr("stroke", "#999")
+        .attr("fill", "none")
+        .attr("marker-end", "url(#arrowhead)");
+
+    const node = svg.append("g")
+        .attr("class", "nodes")
+        .selectAll("circle")
+        .data(nodes)
+        .enter().append("circle")
+        .attr("r", 10)
+        .attr("fill", "#69b3a2")
+        .call(d3.drag()
+            .on("start", dragStarted)
+            .on("drag", dragged)
+            .on("end", dragEnded));
+
+    const labels = svg.append("g")
+        .attr("class", "labels")
+        .selectAll("text")
+        .data(nodes)
+        .enter().append("text")
+        .attr("dy", -15)
+        .attr("dx", 0)
+        .text(d => d.id);
+
+    simulation.on("tick", () => {
+        link.attr("d", d => {
+            const dx = d.target.x - d.source.x;
+            const dy = d.target.y - d.source.y;
+            const dr = Math.sqrt(dx * dx + dy * dy);
+            return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+        });
+
+        node.attr("cx", d => d.x)
+            .attr("cy", d => d.y);
+
+        labels.attr("x", d => d.x)
+            .attr("y", d => d.y);
+    });
+
+    function dragStarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+
+    function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+
+    function dragEnded(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+    }
+}
+
+function findSCC() {
+    const nodesInput = document.getElementById("nodes").value;
+    const edgesInput = document.getElementById("edges").value;
+
+    if (!nodesInput || !edgesInput) {
+        alert("Please enter both nodes and edges.");
+        return;
+    }
+
+    const nodes = nodesInput.split(',').map(n => n.trim());
+    const edges = edgesInput.split(',').map(e => {
+        const [source, target] = e.trim().split('-');
+        return { source: source.trim(), target: target.trim() };
+    });
+
+    const graph = {};
+    nodes.forEach(node => graph[node] = []);
+    edges.forEach(edge => graph[edge.source].push(edge.target));
+
+    const sccs = tarjanSCC(nodes, graph);
+
+    displaySCCs(sccs);
+}
+
+function tarjanSCC(nodes, graph) {
+    let id = 0;
+    const ids = {};
+    const low = {};
+    const onStack = {};
+    const stack = [];
+    const sccs = [];
+
+    nodes.forEach(node => {
+        ids[node] = -1;
+        low[node] = 0;
+        onStack[node] = false;
+    });
+
+    function dfs(at) {
+        stack.push(at);
+        updateStackDisplay(stack);
+        onStack[at] = true;
+        ids[at] = low[at] = id++;
+        
+        graph[at].forEach(to => {
+            if (ids[to] === -1) dfs(to);
+            if (onStack[to]) low[at] = Math.min(low[at], low[to]);
+        });
+
+        if (ids[at] === low[at]) {
+            const scc = [];
+            let node;
+            do {
+                node = stack.pop();
+                updateStackDisplay(stack);
+                onStack[node] = false;
+                low[node] = ids[at];
+                scc.push(node);
+            } while (node !== at);
+            sccs.push(scc);
+        }
+    }
+
+    nodes.forEach(node => {
+        if (ids[node] === -1) dfs(node);
+    });
+
+    return sccs;
+}
+
+function updateStackDisplay(stack) {
+    const stackContainer = document.getElementById("stack");
+    const stackDisplay = document.createElement("div");
+    stackDisplay.className = "stack-item";
+    stackDisplay.textContent = `Stack: ${stack.join(', ')}`;
+    stackContainer.appendChild(stackDisplay);
+}
+
+function displaySCCs(sccs) {
+    const sccContainer = document.getElementById("scc");
+    sccContainer.innerHTML = "<h3>Strongly Connected Components</h3>"; // Clear previous results
+    sccs.forEach((scc, index) => {
+        const sccDisplay = document.createElement("div");
+        sccDisplay.className = "scc-item";
+        sccDisplay.textContent = `SCC ${index + 1}: ${scc.join(', ')}`;
+        sccContainer.appendChild(sccDisplay);
+    });
+}
+</script>
+
+</body>
+</html>
